@@ -2,8 +2,17 @@
 
 import { useState } from "react";
 
+interface Session {
+  id: number;
+  date: string;
+  time: string;
+  location: string;
+  players: string[];
+  matches: any[];
+}
+
 export default function SessionsPage() {
-  const [sessions, setSessions] = useState([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     date: "",
