@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase, Session, Player, Match } from "@/lib/supabase";
+import { generateMatches, maxRoundsForPlayers } from "@/lib/matchmaker";
 
 interface SessionPlayerWithDetails {
   id: string;
@@ -22,7 +23,10 @@ export default function SessionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [showCreateMatch, setShowCreateMatch] = useState(false);
+  const [showAutoMatch, setShowAutoMatch] = useState(false);
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
+  const [numRounds, setNumRounds] = useState(8);
+  const [numCourts, setNumCourts] = useState(1);
 
   useEffect(() => {
     fetchData();
@@ -98,6 +102,34 @@ export default function SessionDetailPage() {
 
     setSelectedPlayers([]);
     setShowCreateMatch(false);
+    fetchData();
+  };
+
+  const generateAutoMatches = async () => {
+    const playerIds = sessionPlayers.map((sp) => sp.player_id);
+    const generatedMatches = generateMatches(playerIds, numRounds, numCourts);
+
+    // Insert all matches
+    for (const match of generatedMatches) {
+      await supabase.from("matches").insert({
+        session_id: sessionId,
+        round_number: match.round,
+        court_number: match.court,
+        team1_player1: match.team1[0],
+        team1_player2: match.team1[1],
+        team2_player1: match.team2[0],
+        team2_player2: match.team2[1],
+        status: "pending",
+      });
+    }
+
+    setShowAutoMatch(false);
+    fetchData();
+  };
+
+  const clearAllMatches = async () => {
+    if (!confirm("Delete all matches in this session?")) return;
+    await supabase.from("matches").delete().eq("session_id", sessionId);
     fetchData();
   };
 
@@ -215,14 +247,89 @@ export default function SessionDetailPage() {
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Matches ({matches.length})</h2>
           {sessionPlayers.length >= 4 && (
-            <button
-              onClick={() => setShowCreateMatch(!showCreateMatch)}
-              className="bg-[#f97316] text-white px-4 py-2 rounded font-bold hover:bg-[#f97316]/90 transition-colors"
-            >
-              Create Match
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowAutoMatch(!showAutoMatch);
+                  setShowCreateMatch(false);
+                }}
+                className="bg-[#84cc16] text-black px-4 py-2 rounded font-bold hover:bg-[#84cc16]/90 transition-colors"
+              >
+                ⚡ Auto Match
+              </button>
+              <button
+                onClick={() => {
+                  setShowCreateMatch(!showCreateMatch);
+                  setShowAutoMatch(false);
+                }}
+                className="bg-[#f97316] text-white px-4 py-2 rounded font-bold hover:bg-[#f97316]/90 transition-colors"
+              >
+                + Manual
+              </button>
+              {matches.length > 0 && (
+                <button
+                  onClick={clearAllMatches}
+                  className="bg-red-500/20 text-red-400 px-4 py-2 rounded font-bold hover:bg-red-500/30 transition-colors"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
           )}
         </div>
+
+        {showAutoMatch && (
+          <div className="mb-6 bg-black/40 border border-[#84cc16]/30 rounded-lg p-6">
+            <h3 className="font-bold mb-4">Auto-Generate Matches</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Automatically create balanced matchups where players rotate partners and opponents.
+            </p>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-bold mb-2">Number of Rounds</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={maxRoundsForPlayers(sessionPlayers.length)}
+                  value={numRounds}
+                  onChange={(e) => setNumRounds(parseInt(e.target.value) || 1)}
+                  className="w-full bg-black border border-[#84cc16]/50 rounded px-4 py-2 text-white focus:outline-none focus:border-[#84cc16]"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Max recommended: {maxRoundsForPlayers(sessionPlayers.length)} rounds for {sessionPlayers.length} players
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-2">Courts</label>
+                <select
+                  value={numCourts}
+                  onChange={(e) => setNumCourts(parseInt(e.target.value))}
+                  className="w-full bg-black border border-[#84cc16]/50 rounded px-4 py-2 text-white focus:outline-none focus:border-[#84cc16]"
+                >
+                  <option value={1}>1 Court</option>
+                  <option value={2}>2 Courts</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {numCourts} court = {numCourts * 4} players per round
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <button
+                onClick={generateAutoMatches}
+                className="bg-[#84cc16] text-black px-6 py-2 rounded font-bold hover:bg-[#84cc16]/90 transition-colors"
+              >
+                Generate {numRounds * numCourts} Matches
+              </button>
+              <button
+                onClick={() => setShowAutoMatch(false)}
+                className="bg-gray-700 text-white px-6 py-2 rounded font-bold hover:bg-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {showCreateMatch && (
           <div className="mb-6 bg-black/40 border border-[#f97316]/30 rounded-lg p-6">
